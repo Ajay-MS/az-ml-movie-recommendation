@@ -118,13 +118,12 @@ def run(raw_data):
     # Integegration with optimizely
     variationKey = azurePipelineOptimizelySdk.getVariationKey(userUid)
     if variationKey is None:
-        variationKey = modelFileByName[0]
+        variationKey = list(modelFileByName.keys())[0]
     print(variationKey)
     logger.info("Predicting for user '" + userUid + "' using model : " + variationKey)
     top3_recommendations = modelRecommendationByName[variationKey]
 
     #data = numpy.array(data)
-    print("in run method")
     for uid, user_ratings in top3_recommendations.items():
         try:
             if str(uid) == str(userUid):
