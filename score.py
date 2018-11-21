@@ -8,13 +8,16 @@ from surprise import Dataset, evaluate
 from surprise import KNNBasic
 import os
 import urllib.request
+import azurepipelines_optimizely_sdk as aps
+import logging
+import sys
 
-def get_data():
+def get_data(model):
     # manually downloading the file, as it requires a prompt otherwise
     url='http://files.grouplens.org/datasets/movielens/ml-100k.zip'
     DATASETS_DIR = os.path.expanduser('~') + '/.surprise_data/'
 
-    print("Starting")
+    logger.info("Starting processing model")
 
     name = 'ml-100k'
     os.makedirs(DATASETS_DIR, exist_ok=True)
@@ -64,27 +67,67 @@ def read_item_names():
  
     return rid_to_name
 
+def initLogger():
+    global logger
+    logging.basicConfig(filename="newfile.log", 
+                    format='%(asctime)s %(message)s', 
+                    filemode='w')
+    #Creating an object 
+    logger=logging.getLogger() 
+  
+    #Setting the threshold of logger to DEBUG 
+    logger.setLevel(logging.DEBUG)  
 
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+    handler.setFormatter(formatter)
+    logger.addHandler(handler)
 
 def init():
-    global model
-    global top3_recommendations
+    global modelRecommendationByName
     global rid_to_name
+    global azurePipelineOptimizelySdk
+
+    initLogger()
+
+    PROJECT_ID = "12098094739"
+    EXPERIMENT_KEY = "Model_Experiment"
+    azurePipelineOptimizelySdk = aps.AzurePipelinesOptimizelySdk(PROJECT_ID, EXPERIMENT_KEY)
+
+    modelFileByName = {
+        "modelA" : "model.pkl"
+    }
+
+    modelRecommendationByName = {}
+    for modelName, modelFileName in modelFileByName.items():
+        logger.info("Predicting corresponding to model : " + modelName)
+        model_path = Model.get_model_path(modelFileName)
+        model = joblib.load(model_path)
+        predictions = get_data(model)
+        top3_recommendations = get_top3_recommendations(predictions)
+        modelRecommendationByName[modelName] = top3_recommendations
     
-    model_path = Model.get_model_path("model.pkl")
-    model = joblib.load(model_path)
-    predictions = get_data()
-    top3_recommendations = get_top3_recommendations(predictions)
-    rid_to_name = read_item_names() 
+    rid_to_name = read_item_names()
 
 def run(raw_data):
 
-    # data here is uid
-    data = json.loads(raw_data)['uid']
+    jsonData = json.loads(raw_data)
+    userUid = jsonData['uid']
+
+    # Integegration with optimizely
+    variationKey = azurePipelineOptimizelySdk.getVariationKey(userUid)
+    if variationKey is None:
+        variationKey = modelFileByName[0]
+    print(variationKey)
+    logger.info("Predicting for user '" + userUid + "' using model : " + variationKey)
+    top3_recommendations = modelRecommendationByName[variationKey]
+
     #data = numpy.array(data)
+    print("in run method")
     for uid, user_ratings in top3_recommendations.items():
         try:
-            if str(uid) == str(data):
+            if str(uid) == str(userUid):
                 result = str((uid, [rid_to_name[iid] for (iid, _) in user_ratings]))
         except Exception as e:
             result = str(e)
